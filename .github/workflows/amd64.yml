@@ -37,6 +37,8 @@ jobs:
         body: 'A collection of Docker images saved in tar.gz format.'
         draft: false
         prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 传递 GitHub Token
 
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
