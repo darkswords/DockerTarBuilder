@@ -32,13 +32,13 @@ jobs:
       id: create_release
       uses: actions/create-release@v1
       with:
-        tag_name: 'docker-images-${{ github.run_id }}'  # 确保标签是有效的格式
+        tag_name: 'docker-images-${{ github.run_id }}'
         release_name: 'Docker Images ${{ github.run_id }}'
         body: 'A collection of Docker images saved in tar.gz format.'
         draft: false
         prerelease: false
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 传递 GitHub Token
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
@@ -47,6 +47,8 @@ jobs:
         asset_path: x86-64-images.tar.gz
         asset_name: x86-64-images.tar.gz
         asset_content_type: application/gzip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 确保上传步骤也使用 token
 
     - name: Clean up intermediate files
       run: |
