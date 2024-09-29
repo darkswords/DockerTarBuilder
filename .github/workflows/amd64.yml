@@ -32,8 +32,8 @@ jobs:
       id: create_release
       uses: actions/create-release@v1
       with:
-        tag_name: 'docker-images-{{ github.run_id }}'
-        release_name: 'Docker Images {{ github.run_id }}'
+        tag_name: 'docker-images-${{ github.run_id }}'  # 确保标签是有效的格式
+        release_name: 'Docker Images ${{ github.run_id }}'
         body: 'A collection of Docker images saved in tar.gz format.'
         draft: false
         prerelease: false
