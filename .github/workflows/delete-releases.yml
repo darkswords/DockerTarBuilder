@@ -1,0 +1,32 @@
+name: Delete Releases
+
+on:
+  schedule:
+    - cron: "0 */2 * * *" # 每两小时运行一次
+  workflow_dispatch: # 手动触发
+
+jobs:
+  delete-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Delete all releases
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            
+            for (const release of releases.data) {
+              await github.rest.repos.deleteRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+              });
+            }
+
+            console.log(`Deleted ${releases.data.length} releases.`);
