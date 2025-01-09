@@ -17,23 +17,28 @@ jobs:
 
       - name: Pull Docker Images and Package
         run: |
+          # 读取用户输入的镜像列表
           images="${{ github.event.inputs.docker_images }}"
           IFS=',' read -r -a image_array <<< "$images"
+
+          # 循环处理每个镜像
           for image in "${image_array[@]}"; do
-            # Pull the Docker image for linux/amd64
+            echo "Pulling and packaging Docker image: ${image}"
+
+            # 拉取 Docker 镜像 (AMD64)
             docker pull "${image}" --platform "linux/amd64"
-            
-            # Prepare the file name
+
+            # 替换文件名中的特殊字符
             image_name="${image//\//_}"
             image_name="${image_name//:/_}"
-            
-            # Save the image to a .tar file
+
+            # 保存镜像为 .tar 文件
             docker save "${image}" -o "${image_name}-amd64.tar"
-            
-            # Compress the .tar file to .tar.gz
-            gzip -c "${image_name}-amd64.tar" > "${image_name}-amd64.tar.gz"
-            
-            # Remove the uncompressed .tar file
+
+            # 使用 tar 压缩为 .tar.gz，确保可以直接 docker load
+            tar -czvf "${image_name}-amd64.tar.gz" "${image_name}-amd64.tar"
+
+            # 删除原始 .tar 文件，保留压缩包
             rm "${image_name}-amd64.tar"
           done
 
@@ -52,7 +57,7 @@ jobs:
           body: |
             [![Github](https://img.shields.io/badge/RELEASE:DockerTarBuilder-123456?logo=github&logoColor=fff&labelColor=green&style=for-the-badge)](https://www.bilibili.com/video/BV1EZ421M7mL) [![Github](https://img.shields.io/badge/国内加速站下载-FC7C0D?logo=github&logoColor=fff&labelColor=000&style=for-the-badge)](https://wkdaily.cpolar.top/archives/1)
             ### How to use? For example
-            `docker load -i alpine_latest.tar.gz`
+            `docker load -i alpine_latest-amd64.tar.gz`
             ### Video teaching
             [![Bilibili](https://img.shields.io/badge/Bilibili-123456?logo=bilibili&logoColor=fff&labelColor=fb7299)](https://www.bilibili.com/video/BV1yyq6YREdF)
           draft: false
