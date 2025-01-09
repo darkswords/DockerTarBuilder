@@ -17,20 +17,34 @@ jobs:
 
       - name: Pull Docker Images and Package
         run: |
+          # 获取输入的 Docker 镜像列表
           images="${{ github.event.inputs.docker_images }}"
           IFS=',' read -r -a image_array <<< "$images"
+
+          # 循环处理每个镜像
           for image in "${image_array[@]}"; do
+            echo "Pulling and packaging Docker image for ARM64: ${image}"
+
+            # 拉取镜像，指定平台为 ARM64
             docker pull "${image}" --platform "linux/arm64"
+
+            # 替换镜像名中的特殊字符
             image_name="${image//\//_}"
             image_name="${image_name//:/_}"
+
+            # 保存镜像为 .tar 文件
             docker save "${image}" -o "${image_name}-arm64.tar"
-            gzip -c "${image_name}-arm64.tar" > "${image_name}-arm64.tar.gz"
+
+            # 使用 tar 压缩 .tar 文件为 .tar.gz
+            tar -czvf "${image_name}-arm64.tar.gz" "${image_name}-arm64.tar"
+
+            # 删除原始 .tar 文件，保留压缩后的 .tar.gz
             rm "${image_name}-arm64.tar"
           done
 
       - name: List generated files (debug step)
         run: |
-          echo "Preparing docker images list (.tar.gz) files:"
+          echo "Generated .tar.gz files:"
           find $GITHUB_WORKSPACE -name "*.tar.gz"
           release_name=$(TZ="Asia/Shanghai" date +'%Y-%m-%d %H:%M Build')
           echo "RELEASE_NAME=$release_name" >> $GITHUB_ENV
@@ -43,7 +57,7 @@ jobs:
           body: |
             [![Github](https://img.shields.io/badge/RELEASE:DockerTarBuilder-123456?logo=github&logoColor=fff&labelColor=green&style=for-the-badge)](https://www.bilibili.com/video/BV1EZ421M7mL) [![Github](https://img.shields.io/badge/国内加速站下载-FC7C0D?logo=github&logoColor=fff&labelColor=000&style=for-the-badge)](https://wkdaily.cpolar.top/archives/1)
             ### How to use? For example
-            `docker load -i alpine_latest.tar.gz `
+            `docker load -i alpine_latest-arm64.tar.gz`
             ### Video teaching
             [![Bilibili](https://img.shields.io/badge/Bilibili-123456?logo=bilibili&logoColor=fff&labelColor=fb7299)](https://www.bilibili.com/video/BV1yyq6YREdF)
           draft: false
