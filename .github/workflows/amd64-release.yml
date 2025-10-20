@@ -15,83 +15,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Show Docker login & environment (diagnostic)
+      - name: Pull Docker Images and Package
         run: |
-          echo "Docker version:"
-          docker --version || true
-          echo "docker info (may require privileges):"
-          docker info || true
-          echo "Contents of ~/.docker/config.json (should contain auths entry):"
-          if [ -f ~/.docker/config.json ]; then
-            jq '.' ~/.docker/config.json || cat ~/.docker/config.json
-          else
-            echo "No ~/.docker/config.json found"
-          fi
+          # 读取用户输入的镜像列表
+          images="${{ github.event.inputs.docker_images }}"
+          IFS=',' read -r -a image_array <<< "$images"
 
-      - name: Pull Docker Images and Package (with retries)
-        env:
-          IMAGES: ${{ github.event.inputs.docker_images }}
-        run: |
-          set -euo pipefail
-
-          # retry helper: runs command up to max attempts with exponential backoff
-          retry_cmd() {
-            local max_attempts=5
-            local attempt=1
-            local sleep_time=3
-            while true; do
-              echo "Attempt #$attempt: $*"
-              if "$@"; then
-                return 0
-              fi
-              if [ "$attempt" -ge "$max_attempts" ]; then
-                echo "Command failed after $attempt attempts."
-                return 1
-              fi
-              echo "Command failed, sleeping ${sleep_time}s before retry..."
-              sleep "$sleep_time"
-              attempt=$((attempt+1))
-              sleep_time=$((sleep_time * 2))
-            done
-          }
-
-          IFS=',' read -r -a image_array <<< "$IMAGES"
+          # 循环处理每个镜像
           for image in "${image_array[@]}"; do
-            image=$(echo "$image" | xargs)   # trim spaces
-            echo "=== Processing image: $image ==="
+            echo "Pulling and packaging Docker image: ${image}"
 
-            # 先尝试检验 manifest（有助于诊断 503 vs 401）
-            echo "Inspecting manifest (diagnostic):"
-            retry_cmd docker manifest inspect "$image" || echo "manifest inspect failed (might be normal for some registries)"
+            # 拉取 Docker 镜像 (AMD64)
+            docker pull "${image}" --platform "linux/amd64"
 
-            # 拉取镜像（指定平台），加重试
-            retry_cmd docker pull --platform linux/amd64 "$image"
-
-            # 文件名替换
+            # 替换文件名中的特殊字符
             image_name="${image//\//_}"
             image_name="${image_name//:/_}"
 
-            # 保存镜像到 tar
-            retry_cmd docker save "$image" -o "${image_name}-amd64.tar"
+            # 保存镜像为 .tar 文件
+            docker save "${image}" -o "${image_name}-amd64.tar"
 
-            # 压缩为 tar.gz（保持 docker load 可用）
+            # 使用 tar 压缩为 .tar.gz，确保可以直接 docker load
             tar -czvf "${image_name}-amd64.tar.gz" "${image_name}-amd64.tar"
 
-            # 删除中间 tar
-            rm -f "${image_name}-amd64.tar"
-            echo "Saved: ${image_name}-amd64.tar.gz"
+            # 删除原始 .tar 文件，保留压缩包
+            rm "${image_name}-amd64.tar"
           done
 
       - name: List generated files (debug step)
         run: |
           echo "Generated .tar.gz files:"
-          find $GITHUB_WORKSPACE -maxdepth 3 -type f -name "*.tar.gz" -print || true
+          find $GITHUB_WORKSPACE -name "*.tar.gz"
           release_name=$(TZ="Asia/Shanghai" date +'%Y-%m-%d %H:%M Build')
           echo "RELEASE_NAME=$release_name" >> $GITHUB_ENV
 
@@ -101,8 +55,11 @@ jobs:
           tag_name: DockerTarBuilder-AMD64
           name: ${{ env.RELEASE_NAME }} for x86-64
           body: |
-            ### How to use
+            [![Github](https://img.shields.io/badge/RELEASE:DockerTarBuilder-123456?logo=github&logoColor=fff&labelColor=green&style=for-the-badge)](https://www.bilibili.com/video/BV1EZ421M7mL) [![Github](https://img.shields.io/badge/国内加速站下载-FC7C0D?logo=github&logoColor=fff&labelColor=000&style=for-the-badge)](https://wkdaily.cpolar.top/archives/1)
+            ### How to use? For example
             `docker load -i alpine_latest-amd64.tar.gz`
+            ### Video teaching
+            [![Bilibili](https://img.shields.io/badge/Bilibili-123456?logo=bilibili&logoColor=fff&labelColor=fb7299)](https://www.bilibili.com/video/BV1yyq6YREdF)
           draft: false
           prerelease: false
         env:
