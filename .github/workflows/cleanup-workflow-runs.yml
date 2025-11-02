@@ -1,0 +1,146 @@
+name: Scheduled cleanup of workflow runs
+
+# 调度：每天 03:00 UTC（你可以按需修改）
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  # 必需：允许删除 workflow runs
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      # 配置项（按需修改或通过 workflow_dispatch/secret 覆盖）
+      KEEP_LATEST: '5'              # 每个 workflow 保留最新多少个 run（0 表示不启用）
+      AGE_DAYS: '30'               # 删除超过多少天的 run（0 表示不启用按日期删除）
+      KEEP_CONCLUSIONS: 'success'  # 逗号分隔，保留这些结论（例如 "success,failure"）；空字符串表示不过滤
+      FILTER_BRANCH: ''            # 只对某个分支生效（例如 'main'），空字符串表示不过滤
+      DRY_RUN: 'true'              # true = 仅显示不会删除；false = 执行删除
+    steps:
+      - name: Cleanup workflow runs (using github-script)
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // 从 env 获取配置
+            const KEEP_LATEST = parseInt(process.env.KEEP_LATEST || '5', 10);
+            const AGE_DAYS = parseInt(process.env.AGE_DAYS || '30', 10);
+            const KEEP_CONCLUSIONS = (process.env.KEEP_CONCLUSIONS || '').split(',').map(s => s.trim()).filter(Boolean);
+            const FILTER_BRANCH = (process.env.FILTER_BRANCH || '').trim();
+            const DRY_RUN = (process.env.DRY_RUN || 'true').toLowerCase() === 'true';
+
+            // helpers
+            const isoDaysAgo = (days) => {
+              const d = new Date();
+              d.setUTCDate(d.getUTCDate() - days);
+              return d.toISOString();
+            };
+
+            console.log(`Config: KEEP_LATEST=${KEEP_LATEST}, AGE_DAYS=${AGE_DAYS}, KEEP_CONCLUSIONS=[${KEEP_CONCLUSIONS}], FILTER_BRANCH='${FILTER_BRANCH}', DRY_RUN=${DRY_RUN}`);
+
+            // 拉取所有 workflow runs（按 repo）
+            // 注意：如果仓库非常大，这里会遍历很多数据，请酌情调低调度频率或加更多过滤
+            const per_page = 100;
+            const params = { owner, repo, per_page };
+
+            // 使用 octokit.paginate 获取全部 runs
+            const allRuns = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, params);
+
+            console.log(`Total workflow runs fetched: ${allRuns.length}`);
+
+            // 筛选（如果设置了 FILTER_BRANCH）
+            let runs = allRuns;
+            if (FILTER_BRANCH) {
+              runs = runs.filter(r => r.head_branch === FILTER_BRANCH);
+              console.log(`After branch filter (${FILTER_BRANCH}): ${runs.length}`);
+            }
+
+            // 按 workflow_id 分组
+            const runsByWorkflow = {};
+            for (const r of runs) {
+              const wid = String(r.workflow_id);
+              if (!runsByWorkflow[wid]) runsByWorkflow[wid] = [];
+              runsByWorkflow[wid].push(r);
+            }
+
+            // 计算保留/删除
+            const toDelete = [];
+
+            const nowISO = new Date().toISOString();
+            const thresholdISO = AGE_DAYS > 0 ? isoDaysAgo(AGE_DAYS) : null;
+
+            for (const [wid, list] of Object.entries(runsByWorkflow)) {
+              // 按创建时间降序（最新在前）
+              list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+              // mark kept: first KEEP_LATEST runs
+              const keptIds = new Set();
+              if (KEEP_LATEST > 0) {
+                for (let i = 0; i < Math.min(KEEP_LATEST, list.length); i++) {
+                  keptIds.add(list[i].id);
+                }
+              }
+
+              // 遍历剩下的，应用 AGE_DAYS 和 KEEP_CONCLUSIONS 规则
+              for (const run of list) {
+                // 已保留的跳过
+                if (keptIds.has(run.id)) continue;
+
+                // 如果 KEEP_CONCLUSIONS 指定了要保留的结论，且当前结论命中，则跳过删除
+                if (KEEP_CONCLUSIONS.length > 0 && run.conclusion && KEEP_CONCLUSIONS.includes(run.conclusion)) {
+                  continue;
+                }
+
+                // 如果指定了 AGE_DAYS，则只删除 older than threshold
+                if (thresholdISO) {
+                  if (!(run.created_at < thresholdISO)) {
+                    // 没超过阈值，不删除
+                    continue;
+                  }
+                }
+
+                // 如果没有指定 AGE_DAYS 且 KEEP_LATEST==0 并且 KEEP_CONCLUSIONS 也为空，防止误删，默认不删
+                //（不过上面配置会通常至少设置一个条件）
+                toDelete.push({
+                  id: run.id,
+                  workflow_id: run.workflow_id,
+                  name: run.name,
+                  head_branch: run.head_branch,
+                  created_at: run.created_at,
+                  conclusion: run.conclusion,
+                  url: run.html_url
+                });
+              }
+            }
+
+            console.log(`Total runs to delete: ${toDelete.length}`);
+            if (toDelete.length === 0) {
+              console.log('Nothing to delete. Exiting.');
+              return;
+            }
+
+            // 执行删除或打印
+            for (const r of toDelete) {
+              console.log(`${DRY_RUN ? '[DRY]' : '[DELETE]'} run id=${r.id} workflow_id=${r.workflow_id} branch=${r.head_branch} created_at=${r.created_at} conclusion=${r.conclusion} url=${r.url}`);
+              if (!DRY_RUN) {
+                try {
+                  await github.rest.actions.deleteWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: r.id
+                  });
+                  console.log(`Deleted run ${r.id}`);
+                } catch (err) {
+                  core.warning && core.warning(`Failed to delete run ${r.id}: ${err}`);
+                  console.log(`Failed to delete run ${r.id}: ${err}`);
+                }
+              }
+            }
+
+            console.log('Done.');
