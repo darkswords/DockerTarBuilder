@@ -19,7 +19,7 @@ jobs:
       AGE_DAYS: '30'               # 删除超过多少天的 run（0 表示不启用按日期删除）
       KEEP_CONCLUSIONS: 'success'  # 逗号分隔，保留这些结论（例如 "success,failure"）；空字符串表示不过滤
       FILTER_BRANCH: ''            # 只对某个分支生效（例如 'main'），空字符串表示不过滤
-      DRY_RUN: 'true'              # true = 仅显示不会删除；false = 执行删除
+      DRY_RUN: 'false'              # true = 仅显示不会删除；false = 执行删除
     steps:
       - name: Cleanup workflow runs (using github-script)
         uses: actions/github-script@v6
