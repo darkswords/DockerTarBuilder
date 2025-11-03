@@ -3,7 +3,7 @@ name: Cleanup workflow runs (enhanced)
 on:
   workflow_dispatch:        # 手动触发
   schedule:
-    - cron: '0 3 * * *'    # 每天 03:00 UTC 自动触发
+    - cron: '0 3 28 * *'    # 每天 03:00 UTC 自动触发
 
 permissions:
   actions: write
